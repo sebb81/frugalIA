@@ -5,6 +5,7 @@ from PIL import Image
 import plotly.express as px
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
+
 import time
 import av
 import cv2
@@ -13,6 +14,11 @@ import re
 import os
 import sys
 from pathlib import Path
+
+from gliner import GLiNER
+from sentence_transformers import SentenceTransformer
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, pipelines
+
 # --- FIX LOGISTIQUE : CHARGEMENT DES DLL LIBVIPS (MODE PORTABLE) ---
 # On utilise __file__ pour être sûr de partir de l'emplacement du script
 BASE_DIR = Path(__file__).parent.absolute()
@@ -30,7 +36,7 @@ else:
 
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="IA Frugale : Le Scalpel", page_icon="✂️", layout="wide")
+st.set_page_config(page_title="IA Frugale", page_icon="✂️", layout="wide")
 
 # --- INITIALISATION ---
 if 'water' not in st.session_state: st.session_state.water = 0.0
@@ -77,10 +83,6 @@ def render_digiscore(grade):
 # --- CHARGEMENT DES MODÈLES ---
 @st.cache_resource
 def load_models():
-    from gliner import GLiNER
-    from sentence_transformers import SentenceTransformer
-    from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
-
     # On fixe une révision stable pour éviter les mauvaises surprises
     MD_REVISION = "2025-01-09" 
 
@@ -96,6 +98,16 @@ def load_models():
     }
 
 models = load_models()
+# 1. Définition de la fonction de chargement (avec cache pour la performance)
+@st.cache_resource
+def load_llm():
+    """
+    Charge un modèle très léger (SmolLM2-135M) pour une exécution locale rapide.
+    Le cache permet de ne le charger qu'une seule fois en mémoire.
+    """
+    # On utilise SmolLM2-135M-Instruct, parfait pour des démos CPU rapides
+    pipe = pipeline("text-generation", model="Qwen/Qwen2.5-0.5B-Instruct")
+    return pipe
 
 # --- MOTEUR D'ANONYMISATION ROBUSTE ---
 def anonymize_text(text, model):
@@ -200,8 +212,8 @@ elif tool == "🧠 Brain Map":
     from sklearn.cluster import AgglomerativeClustering
     from sklearn.preprocessing import normalize
 
-    # --- LE CURSEUR DE RÉGLAGE (Le Scalpel) ---
-    st.markdown("### 🛠️ Réglage du Scalpel")
+    # --- LE CURSEUR DE RÉGLAGE (La finesse) ---
+    st.markdown("### 🛠️ Réglage de la finesse")
     threshold = st.slider(
         "Sensibilité du regroupement (Threshold) :", 
         min_value=0.1, 
@@ -312,7 +324,7 @@ elif tool == "🎨 Sketch2Code":
     
     st.markdown("""
     **Leçon :** Un petit modèle local est parfait pour décrire une scène ou une personne. 
-    Mais attention : sur des schémas très complexes, le 'Scalpel' peut atteindre ses limites.
+    Mais attention : sur des schémas très complexes, le niveau de précision atteint toutefois ses limites.
     """)
 
     file = st.file_uploader("Image / Croquis", type=['png', 'jpg'], key="u3")
@@ -366,36 +378,63 @@ elif tool == "🎨 Sketch2Code":
 # =========================================================
 # MODULE 4 : TOKEN SQUEEZER (TEXT GEN)
 # =========================================================
-elif tool == "📉 Token Squeezer (Optimisation)":
-    st.header("📉 Token Squeezer")
-    st.caption("Leçon : Utiliser une petite IA gratuite pour optimiser les prompts d'une grosse IA payante.")
+elif tool == "📉 Token Squeezer":
+    st.header("📉 Token Squeezer (V3 - Mode Few-Shot)")
+    st.caption("Stratégie : Donner des exemples au modèle pour forcer la brièveté.")
 
     user_prompt = st.text_area("Votre prompt verbeux :", 
-                               "Je voudrais que tu agisses comme un expert en marketing et que tu m'écrives un post pour LinkedIn qui parle de l'IA frugale, il faut que ce soit court, percutant, avec des emojis, et que ça explique pourquoi c'est écolo.")
+                            "Je voudrais que tu agisses comme un expert en marketing et que tu m'écrives un post pour LinkedIn qui parle de l'IA frugale, il faut que ce soit court, percutant, avec des emojis, et que ça explique pourquoi c'est écolo.")
 
     if st.button("Compresser le Prompt"):
-        with st.spinner("Chargement du petit LLM (SmolLM)..."):
+        with st.spinner("Chargement..."):
             generator = load_llm()
         
-        system_instruction = "Tu es un expert en Prompt Engineering. Réécris la demande suivante pour qu'elle soit concise, directe et efficace pour un LLM : "
-        full_prompt = f"{system_instruction}\n\nDemande originale: {user_prompt}\n\nPrompt optimisé:"
-        
-        with st.spinner("Réécriture en cours..."):
-            # On utilise un petit modèle (SmolLM) pour la démo rapide sans download de 5Go
-            messages = [
-                {"role": "user", "content": full_prompt},
-            ]
-            result = generator(messages, max_new_tokens=150, temperature=0.7)
-            
-            output = result[0]['generated_text'][-1]['content'] # Récupérer juste la réponse si format chat
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.warning(f"Prompt original ({len(user_prompt.split())} mots)")
-            with col2:
-                st.success(f"Prompt optimisé")
-                st.write(output)
+    # --- LA MAGIE EST ICI : FEW-SHOT PROMPTING ---
+    # On donne des exemples "Avant -> Après" pour forcer le modèle à imiter le style
+    system_instruction = """Tu es un expert en compression de texte. 
+    Ta tâche : Transformer des demandes longues en commandes impératives courtes.
+    Règles : Supprime la politesse. Supprime 'Je veux que'. Utilise l'impératif. Pas de listes.
 
+    Exemple 1 :
+    Entrée : "Je voudrais que tu agisses comme un coach sportif et que tu me donnes un plan pour perdre du poids."
+    Sortie : "Agis comme un coach sportif. Crée un plan de perte de poids."
+
+    Exemple 2 :
+    Entrée : "Peux-tu écrire un poème sur la pluie en style victorien s'il te plait ?"
+    Sortie : "Écris un poème victorien sur la pluie."
+
+    Exemple 3 :
+    Entrée : "Je veux une explication simple de la quantique pour un enfant de 5 ans."
+    Sortie : "Explique la physique quantique à un enfant de 5 ans."
+    """
+    
+    # On construit le message final
+    messages = [
+        {"role": "system", "content": system_instruction},
+        {"role": "user", "content": f"Entrée : \"{user_prompt}\"\nSortie :"}
+    ]
+    
+    with st.spinner("Compression drastique..."):
+        # Max token réduit pour couper la parole s'il devient bavard
+        result = generator(messages, max_new_tokens=60, temperature=0.1) 
+        
+        output = result[0]['generated_text'][-1]['content']
+        
+        # Nettoyage final (parfois il laisse des guillemets)
+        output = output.replace('"', '').strip()
+
+        # Calculs
+        len_original = len(user_prompt.split())
+        len_optimized = len(output.split())
+        reduction = ((len_original - len_optimized) / len_original) * 100
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.warning(f"Original ({len_original} mots)")
+            st.write(user_prompt)
+        with col2:
+            st.success(f"Optimisé ({len_optimized} mots, -{int(reduction)}%)")
+            st.code(output, language="text")
 
 # =========================================================
 # MODULE 5 : HAND CONTROL
