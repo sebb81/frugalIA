@@ -1,0 +1,16 @@
+streamlit
+torch
+transformers
+sentence-transformers
+gliner
+plotly
+scikit-learn
+pillow
+accelerate
+einops
+jinja2>=3.1.0
+mediapipe
+opencv-python
+streamlit-webrtc
+av
+pyvips

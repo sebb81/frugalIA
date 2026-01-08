@@ -1,0 +1,21 @@
+IDLE (Python GUI).exe
+Jupyter Lab.exe
+Jupyter Notebook.exe
+license.txt
+Spyder reset.exe
+Spyder.exe
+VS Code.exe
+WinPython Command Prompt.exe
+WinPython Control Panel.exe
+WinPython Interpreter.exe
+WinPython Powershell Prompt.exe
+/cache_huggingface/
+/.venv/
+/.vscode/
+/__pycache__/
+/.idea/
+/Notebooks/
+/python-3.12.6.amd64/
+/scripts/
+/settings/
+/vips-8.16/
