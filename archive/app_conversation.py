@@ -118,7 +118,7 @@ class OllamaConfig:
     max_tokens: int = 450
 
 
-LLM_SYSTEM = """Tu es un assistant d’atelier. Tu aides à la décision en reformulant et en structurant.
+LLM_SYSTEM = """Tu es un assistant personnel. Tu aides à la décision en reformulant et en structurant.
 Contraintes:
 - Ne décide pas à la place des humains.
 - N’invente pas de faits non présents dans la conversation.
@@ -270,8 +270,4 @@ with col2:
                 st.markdown("### JSON (debug)")
                 st.code(json.dumps(out, ensure_ascii=False, indent=2), language="json")
 
-st.divider()
-st.caption(
-    "Limitation POC: ce prototype ne fait pas de vrai audio temps réel. "
-    "Pour un POC frugal, commence par du texte (chat/transcription), puis branche une source de transcription ensuite."
-)
+

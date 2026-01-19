@@ -6,5 +6,5 @@ set TORCH_HOME=%~dp0\cache_torch
 :: Lancer l'app
 echo Lancement de l'Atelier IA Frugale...
 echo Ne fermez pas cette fenetre.
-call "python-3.12.6.amd64\python.exe" -m streamlit run app_atelier2.py
+call "python-3.12.6.amd64\python.exe" -m streamlit run app_sketchcode.py
 pause
