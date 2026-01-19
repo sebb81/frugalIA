@@ -6,6 +6,7 @@ import pickle
 import streamlit as st
 from openai import OpenAI
 from gliner import GLiNER
+import logging
 
 BASE_URL = "http://localhost:8033/v1"
 LLM_MODEL = "mistral"
@@ -14,9 +15,9 @@ INDEX_FILE = "eco_index.pkl"  # <--- Nom du fichier de base de données locale
 
 DEFAULT_CHUNK_SIZE = 1200
 DEFAULT_CHUNK_OVERLAP = 200
-DEFAULT_TOP_K = 4
+DEFAULT_TOP_K = 20
 DEFAULT_MIN_SCORE = 0.2
-
+logging.basicConfig(level=logging.INFO)
 # SYSTEM_PROMPT = (
 #     "Tu es EcoBot, un assistant IA frugal conçu pour cet atelier d'IA locale. "
 #     "Tu fonctionnes entièrement en local sur la machine pour limiter l'empreinte carbone. "
@@ -30,59 +31,26 @@ DEFAULT_MIN_SCORE = 0.2
 # )
 
 SYSTEM_PROMPT = (
-    "Tu es EcoBOT, un assistant IA local conçu pour être frugal, sûr et utile."
-    "\nObjectif principal : aider l’utilisateur à produire un plan opérationnel "
-    "(ex : gestion des déchets d’un festival) avec un minimum de données."
-    "\nPriorité aux documents fournis (RAG) lorsqu’ils existent."
+    "Tu es EcoBot 🌿, un assistant expert en organisation d'événements éco-responsables. "
+    "Tu es rigoureux, structuré et obsédé par la traçabilité de l'information."
     "\n\n"
-    "RÈGLES DE COMPORTEMENT"
-    "\n1) Utilité terrain avant tout"
-    "\n- Réponses actionnables : checklists, étapes, rôles, quantités, timing."
-    "\n- Formats courts et structurés (puces, tableaux simples, J-7 / J-1 / J0)."
-    "\n- Poser au maximum 1–2 questions de clarification si nécessaire."
-    "\n- Sinon, proposer une version par défaut et expliquer comment l’affiner."
-    "\n\n"
-    "2) Frugalité (moins mais juste)"
-    "\n- Pas de longues introductions ni de blabla."
-    "\n- D’abord une réponse suffisante, puis une section : "
-    "« Options si on veut aller plus loin »."
-    "\n\n"
-    "3) Données et confidentialité"
-    "\n- Ne jamais demander de données personnelles "
-    "(noms, emails, téléphones, adresses exactes)."
-    "\n- Si des données personnelles sont fournies : ne pas les répéter."
-    "\n- Signaler brièvement : "
-    "« J’ai ignoré les informations personnelles pour rester sobre et conforme. »"
-    "\n- Si une info sensible est nécessaire, demander une alternative non personnelle "
-    "(ex : un rôle plutôt qu’un nom)."
-    "\n\n"
-    "4) Documents / RAG : transparence"
-    "\n- Si des documents sont chargés :"
-    "\n  - Baser les réponses d’abord sur ces documents."
-    "\n  - Citer les sources : [Doc:NomDuFichier] (+ section/page si disponible)."
-    "\n  - Si une info n’est pas présente : "
-    "« Je ne le vois pas dans les documents fournis. »"
-    "\n- Si aucun document n’est chargé :"
-    "\n  - Donner une réponse générique."
-    "\n  - Proposer quels documents charger pour localiser et fiabiliser la réponse."
-    "\n\n"
-    "5) Exactitude"
-    "\n- Ne pas inventer."
-    "\n- Si incertain, le dire clairement et proposer une vérification ou un document."
-    "\n- Ne pas créer de lois, chiffres officiels, contacts ou services locaux "
-    "non présents dans les documents."
-    "\n\n"
-    "6) Style"
-    "\n- Français clair, ton professionnel et simple."
-    "\n- Pas de jargon inutile. Si un terme est nécessaire (ex : RAG), "
-    "l’expliquer en une phrase."
-    "\n\n"
-    "FORMAT DE RÉPONSE PAR DÉFAUT"
-    "\nA) Résumé en 1 phrase (optionnel)"
-    "\nB) Plan en 5 à 10 actions maximum"
-    "\nC) Checklist (J-7 / J-1 / Jour J / Après)"
-    "\nD) « Pour améliorer avec des documents » (sans RAG) "
-    "ou « Sources » (avec RAG)"
+    "TES OBJECTIFS :"
+    "\n1. UTILISATION DU CONTEXTE : Réponds EXCLUSIVEMENT à partir du 'CONTEXTE DOCUMENTAIRE' fourni. "
+    "Les extraits sont numérotés (ex: [1], [2])."
+    "\n2. CITATIONS OBLIGATOIRES : Pour chaque affirmation importante, tu DOIS indiquer le numéro de la source entre crochets."
+    "\n   - Exemple : 'Les gobelets jetables sont interdits [1], privilégiez les Ecocups consignés [2].'"
+    "\n3. FORMATAGE : Utilise des Titres (##), des listes à puces (-) et du **gras** pour la lisibilité."
+    "\n4. DÉTAILS : Sois complet et précis. Si l'utilisateur demande un plan, fournis un plan détaillé."
+    "\n5. 🔍 CITATIONS OBLIGATOIRES : Chaque affirmation doit être sourcée avec le numéro du document entre crochets. Ex: 'Le délai est de 8 semaines [3] car...'."
+    "\n6. 📅 DÉLAIS ET CONTACTS : Tu dois IMPÉRATIVEMENT mentionner toutes les contraintes de temps (délais d'instruction, dates limites) et les contacts (téléphones, emails) trouvés dans le texte."
+    "\n7. 🚫 PAS D'OUBLI : Si le document mentionne une procédure administrative ou un formulaire, c'est ta priorité n°1."
+    "\n8. VÉRITÉ ABSOLUE : Tu ne dois JAMAIS inventer un numéro de téléphone, un email ou un délai."
+    "\n9. COMPORTEMENT : Si l'utilisateur demande une info (ex: contact) et qu'elle n'est PAS dans le texte :"
+    "\n   👉 Écris explicitement : '❌ Non mentionné dans les documents'."
+    "\n   👉 Ne tente JAMAIS de deviner ou de construire une adresse mail."
+    "\n10. ZERO REPETITION : lorsque tu crées une liste, assure-toi que chaque élément est unique. Ne répète jamais une phrase ou une structure de phrase, meme si la source semble le faire. Synthétise si la source est répétitive."
+    "\n11. DONNÉES PUBLIQUES : Les documents fournis sont des guides officiels publics. Tu as l'AUTORISATION FORMELLE d'extraire tous les noms, emails et téléphones mentionnés. Ce n'est pas confidentiel."
+    "Ton ton est professionnel et bienveillant. Si l'info n'est pas dans le contexte, dis-le."
 )
 
 
@@ -195,16 +163,31 @@ def reset_rag_state():
 # ==============================================================================
 def text_from_bytes(name, data):
     name_lower = name.lower()
+    
+    # 1. Gestion des PDF avec PyMuPDF (fitz) - BEAUCOUP PLUS ROBUSTE
     if name_lower.endswith(".pdf"):
         try:
-            from pypdf import PdfReader
-        except Exception:
-            return "", "PDF support requires pypdf (pip install pypdf)."
-        reader = PdfReader(io.BytesIO(data))
-        pages = []
-        for page in reader.pages:
-            pages.append(page.extract_text() or "")
-        return "\n".join(pages), None
+            import fitz  # PyMuPDF
+        except ImportError:
+            return "", "Erreur : Installez la librairie via 'pip install pymupdf'"
+            
+        try:
+            # Ouverture du flux de données
+            doc = fitz.open(stream=data, filetype="pdf")
+            text_pages = []
+            
+            for page in doc:
+                # get_text("text") est standard, mais get_text("blocks") peut aider si c'est le bazar
+                # On reste sur la méthode standard qui est déjà bien meilleure que pypdf
+                extracted = page.get_text()
+                text_pages.append(extracted)
+            
+            return "\n".join(text_pages), None
+            
+        except Exception as e:
+            return "", f"Erreur de lecture PDF (PyMuPDF) : {str(e)}"
+
+    # 2. Gestion des fichiers texte classiques (txt, md)
     return data.decode("utf-8", errors="ignore"), None
 
 
@@ -259,21 +242,51 @@ def vector_norm(vector):
 
 
 def retrieve_chunks(query, top_k, min_score, client):
+    # 1. Calcul du vecteur de la question
     query_embedding = embed_texts([query], client)[0]
     query_norm = vector_norm(query_embedding)
+    
     if query_norm == 0:
         return [], []
 
+    # 2. Préparation des mots-clés (Hybrid Search Frugale)
+    # On découpe la question en mots, on met en minuscule, et on garde ceux > 3 lettres
+    # Ex: "téléphone service gestion" -> ['téléphone', 'service', 'gestion']
+    query_keywords = [w.lower() for w in query.split() if len(w) > 3]
+
     scored = []
     for idx, embedding in enumerate(st.session_state.rag_embeddings):
+        # A. Score Vectoriel (Le Sens)
         denom = query_norm * st.session_state.rag_norms[idx]
-        score = dot_product(query_embedding, embedding) / denom if denom else 0.0
-        scored.append((score, idx))
+        cosine_score = dot_product(query_embedding, embedding) / denom if denom else 0.0
+        
+        # B. Score Mots-Clés (Le Bonus "Exactitude")
+        # On regarde le texte brut du chunk
+        chunk_text_lower = st.session_state.rag_docs[idx].lower()
+        keyword_bonus = 0.0
+        
+        for kw in query_keywords:
+            if kw in chunk_text_lower:
+                # CHAQUE mot clé trouvé ajoute +5% de pertinence
+                keyword_bonus += 0.05
+        
+        # On limite le bonus à +30% max pour ne pas casser complètement la logique sémantique
+        keyword_bonus = min(keyword_bonus, 0.30)
+        
+        # C. Score Final Combiné
+        final_score = cosine_score + keyword_bonus
+        
+        scored.append((final_score, idx))
 
+    # 3. Tri des résultats
     scored.sort(key=lambda item: item[0], reverse=True)
+    
     chunks = []
     sources = set()
+    
+    # On récupère les meilleurs
     for score, idx in scored[:top_k]:
+        # On filtre si le score est vraiment trop bas (même avec bonus)
         if score < min_score:
             continue
         chunks.append(st.session_state.rag_docs[idx])
@@ -433,7 +446,7 @@ with st.sidebar.expander("Ajouter des documents", expanded=False):
     top_k = st.slider(
         "Top K",
         min_value=1,
-        max_value=8,
+        max_value=50,
         value=DEFAULT_TOP_K,
         step=1,
         label_visibility="collapsed",
@@ -478,11 +491,11 @@ if uploaded_files:
             continue
         
         # --- LOGIQUE GDPR SHIELD (DOCUMENTS) ---
-        if use_gdpr_shield:
-            with st.spinner(f"🛡️ Anonymisation IA en cours : {uploaded_file.name}"):
-                text, count_pii = gdpr_shield.anonymize(text)
-            if count_pii > 0:
-                st.sidebar.warning(f"🛡️ {count_pii} éléments masqués dans {uploaded_file.name}")
+        # if use_gdpr_shield:
+        #     with st.spinner(f"🛡️ Anonymisation IA en cours : {uploaded_file.name}"):
+        #         text, count_pii = gdpr_shield.anonymize(text)
+        #     if count_pii > 0:
+        #         st.sidebar.warning(f"🛡️ {count_pii} éléments masqués dans {uploaded_file.name}")
         # ---------------------------------------
 
         chunks = chunk_text(text, chunk_size, chunk_overlap)
@@ -541,9 +554,11 @@ if prompt := st.chat_input("Posez votre question..."):
     # 2. PRÉPARATION DU PROMPT SÉCURISÉ
     safe_prompt = prompt
     if use_gdpr_shield:
+        logging.info("Anonymisation du prompt utilisateur...")
+        logging.info(f"Prompt avant: {safe_prompt}")
         with st.spinner("Anonymisation de votre question..."):
             safe_prompt, count_prompt_pii = gdpr_shield.anonymize(prompt)
-        
+        logging.info(f"Prompt apres: {safe_prompt}")
         if count_prompt_pii > 0:
             st.info(f"🔒 Votre prompt a été sécurisé avant envoi : \"{safe_prompt}\"")
 
@@ -585,15 +600,53 @@ if prompt := st.chat_input("Posez votre question..."):
     # On ajoute notre gros message fusionné à la fin
     messages_for_llm.append({"role": "user", "content": final_content})
 
+    # --- AJOUT DEBUG : VOIR CE QUE L'IA LIT ---
+    with st.expander("🔍 DEBUG : Voir le Contexte envoyé au LLM", expanded=False):
+        st.markdown(f"**Nombre de documents lus :** {len(retrieved_chunks)}")
+        st.text_area("Contenu brut envoyé", final_content, height=300)
+    # ------------------------------------------
+
     # 7. APPEL LLM EN STREAMING
     with st.chat_message("assistant"):
         stream = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages_for_llm,
             stream=True,
+            # --- AJOUTS ANTI-BUG ---
+            temperature=0.3,       # On baisse la créativité (évite qu'il parte en vrille)
+            top_p=0.9,             # Noyau de probabilité
+            presence_penalty=0.6,  # Punit si le mot est déjà là (évite la redite)
+            frequency_penalty=1.5, # Punit si le mot apparaît trop souvent
+            max_tokens=2048
         )
         response = st.write_stream(stream)
         if used_sources:
             st.caption("Sources: " + ", ".join(used_sources))
 
     st.session_state.messages.append({"role": "assistant", "content": response})
+
+# =========================================================
+# OUTIL DE DIAGNOSTIC (A AJOUTER A LA FIN DU FICHIER)
+# =========================================================
+st.sidebar.markdown("---")
+st.sidebar.header("🛠️ DIAGNOSTIC PDF")
+debug_query = st.sidebar.text_input("Chercher un mot EXACT dans la mémoire :", "")
+
+if debug_query:
+    found_count = 0
+    st.sidebar.write(f"Recherche de : '{debug_query}'")
+    
+    # On parcourt TOUS les morceaux en mémoire
+    for i, doc in enumerate(st.session_state.rag_docs):
+        # On cherche le mot (insensible à la casse)
+        if debug_query.lower() in doc.lower():
+            found_count += 1
+            st.sidebar.success(f"TROUVÉ dans le Chunk #{i}")
+            with st.sidebar.expander(f"Voir le contenu du Chunk #{i}"):
+                # On surligne le mot trouvé
+                highlighted = doc.replace(debug_query, f"**{debug_query}**")
+                st.markdown(highlighted)
+    
+    if found_count == 0:
+        st.sidebar.error("❌ CE MOT N'EXISTE PAS DANS LA MÉMOIRE.")
+        st.sidebar.warning("Conclusion : pypdf a mal lu le fichier ou le mot est mal écrit/coupé.")
