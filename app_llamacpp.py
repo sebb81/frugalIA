@@ -1,6 +1,7 @@
 import hashlib
 import io
 import math
+import os
 import pickle
 import streamlit as st
 from openai import OpenAI
@@ -29,14 +30,61 @@ DEFAULT_MIN_SCORE = 0.2
 # )
 
 SYSTEM_PROMPT = (
-    "Salut ! Je suis EcoBot 🌿, ton compagnon d'atelier pour une IA plus verte."
-    "\nJe n'ai pas accès à internet, je ne connais que ce que tu me donnes à lire."
+    "Tu es EcoBOT, un assistant IA local conçu pour être frugal, sûr et utile."
+    "\nObjectif principal : aider l’utilisateur à produire un plan opérationnel "
+    "(ex : gestion des déchets d’un festival) avec un minimum de données."
+    "\nPriorité aux documents fournis (RAG) lorsqu’ils existent."
     "\n\n"
-    "RÈGLES DU JEU :"
-    "\n- Si l'info est dans tes documents : Je te la donne avec plaisir."
-    "\n- Si l'info n'y est pas : Je te le dirai (je ne gaspille pas d'énergie à inventer des réponses)."
-    "\n- Reste concis pour économiser des tokens !"
+    "RÈGLES DE COMPORTEMENT"
+    "\n1) Utilité terrain avant tout"
+    "\n- Réponses actionnables : checklists, étapes, rôles, quantités, timing."
+    "\n- Formats courts et structurés (puces, tableaux simples, J-7 / J-1 / J0)."
+    "\n- Poser au maximum 1–2 questions de clarification si nécessaire."
+    "\n- Sinon, proposer une version par défaut et expliquer comment l’affiner."
+    "\n\n"
+    "2) Frugalité (moins mais juste)"
+    "\n- Pas de longues introductions ni de blabla."
+    "\n- D’abord une réponse suffisante, puis une section : "
+    "« Options si on veut aller plus loin »."
+    "\n\n"
+    "3) Données et confidentialité"
+    "\n- Ne jamais demander de données personnelles "
+    "(noms, emails, téléphones, adresses exactes)."
+    "\n- Si des données personnelles sont fournies : ne pas les répéter."
+    "\n- Signaler brièvement : "
+    "« J’ai ignoré les informations personnelles pour rester sobre et conforme. »"
+    "\n- Si une info sensible est nécessaire, demander une alternative non personnelle "
+    "(ex : un rôle plutôt qu’un nom)."
+    "\n\n"
+    "4) Documents / RAG : transparence"
+    "\n- Si des documents sont chargés :"
+    "\n  - Baser les réponses d’abord sur ces documents."
+    "\n  - Citer les sources : [Doc:NomDuFichier] (+ section/page si disponible)."
+    "\n  - Si une info n’est pas présente : "
+    "« Je ne le vois pas dans les documents fournis. »"
+    "\n- Si aucun document n’est chargé :"
+    "\n  - Donner une réponse générique."
+    "\n  - Proposer quels documents charger pour localiser et fiabiliser la réponse."
+    "\n\n"
+    "5) Exactitude"
+    "\n- Ne pas inventer."
+    "\n- Si incertain, le dire clairement et proposer une vérification ou un document."
+    "\n- Ne pas créer de lois, chiffres officiels, contacts ou services locaux "
+    "non présents dans les documents."
+    "\n\n"
+    "6) Style"
+    "\n- Français clair, ton professionnel et simple."
+    "\n- Pas de jargon inutile. Si un terme est nécessaire (ex : RAG), "
+    "l’expliquer en une phrase."
+    "\n\n"
+    "FORMAT DE RÉPONSE PAR DÉFAUT"
+    "\nA) Résumé en 1 phrase (optionnel)"
+    "\nB) Plan en 5 à 10 actions maximum"
+    "\nC) Checklist (J-7 / J-1 / Jour J / Après)"
+    "\nD) « Pour améliorer avec des documents » (sans RAG) "
+    "ou « Sources » (avec RAG)"
 )
+
 
 # ==============================================================================
 # CLASSE GDPR SHIELD (GLiNER)
@@ -97,6 +145,49 @@ class GDPRShield:
             count += 1
             
         return "".join(text_list), count
+
+# ==============================================================================
+# GESTION DE LA PERSISTANCE (SAUVEGARDE / CHARGEMENT)
+# ==============================================================================
+
+def save_index_to_disk():
+    """Sauvegarde l'état du RAG dans un fichier pickle."""
+    data = {
+        "rag_docs": st.session_state.rag_docs,
+        "rag_sources": st.session_state.rag_sources,
+        "rag_embeddings": st.session_state.rag_embeddings,
+        "rag_norms": st.session_state.rag_norms,
+        "rag_hashes": st.session_state.rag_hashes
+    }
+    with open(INDEX_FILE, "wb") as f:
+        pickle.dump(data, f)
+
+def load_index_from_disk():
+    """Charge l'état du RAG depuis le disque si le fichier existe."""
+    if os.path.exists(INDEX_FILE):
+        try:
+            with open(INDEX_FILE, "rb") as f:
+                data = pickle.load(f)
+            st.session_state.rag_docs = data["rag_docs"]
+            st.session_state.rag_sources = data["rag_sources"]
+            st.session_state.rag_embeddings = data["rag_embeddings"]
+            st.session_state.rag_norms = data["rag_norms"]
+            st.session_state.rag_hashes = data["rag_hashes"]
+            return True
+        except Exception:
+            return False
+    return False
+
+def reset_rag_state():
+    """Vide la mémoire et supprime le fichier disque."""
+    st.session_state.rag_docs = []
+    st.session_state.rag_sources = []
+    st.session_state.rag_embeddings = []
+    st.session_state.rag_norms = []
+    st.session_state.rag_hashes = set()
+    # Suppression du fichier physique
+    if os.path.exists(INDEX_FILE):
+        os.remove(INDEX_FILE)
 
 
 # ==============================================================================
@@ -221,7 +312,16 @@ if "system_prompt" not in st.session_state:
     st.session_state.system_prompt = SYSTEM_PROMPT
 
 if "rag_docs" not in st.session_state:
-    reset_rag_state()
+    # On initialise vide
+    st.session_state.rag_docs = []
+    st.session_state.rag_sources = []
+    st.session_state.rag_embeddings = []
+    st.session_state.rag_norms = []
+    st.session_state.rag_hashes = set()
+    
+    # On essaie de charger le disque
+    if load_index_from_disk():
+        st.toast(f"♻️ Index chargé : {len(st.session_state.rag_docs)} chunks restaurés !", icon="💾")
 
 # --- SIDEBAR ---
 st.sidebar.image("logo.png", width=150, )
@@ -273,6 +373,12 @@ with st.sidebar.expander("Prompt systeme", expanded=False):
     )
     if st.button("Reinitialiser prompt systeme"):
         st.session_state.system_prompt = SYSTEM_PROMPT
+
+# Note sur la persistance
+if os.path.exists(INDEX_FILE):
+    st.sidebar.success("💾 Une base de données existe.")
+else:
+    st.sidebar.warning("⚪ Aucune base sauvegardée.")
 
 with st.sidebar.expander("Ajouter des documents", expanded=False):
     uploaded_files = st.file_uploader(
@@ -350,13 +456,14 @@ with st.sidebar.expander("Ajouter des documents", expanded=False):
         label_visibility="collapsed",
     )
 
-    if st.button("Effacer documents"):
+    if st.button("🗑️ Tout effacer (RAM + Disque)"):
         reset_rag_state()
+        st.rerun()
 
-    st.caption("Note: pour les embeddings, lancez llama.cpp avec --embedding.")
 
 # TRAITEMENT DES FICHIERS UPLOADÉS
 if uploaded_files:
+    new_data_added = False
     for uploaded_file in uploaded_files:
         data = uploaded_file.getvalue()
         file_hash = hashlib.sha256(data).hexdigest()
@@ -398,17 +505,25 @@ if uploaded_files:
         st.session_state.rag_embeddings.extend(embeddings)
         st.session_state.rag_norms.extend([vector_norm(e) for e in embeddings])
         st.session_state.rag_hashes.add(file_hash)
+        new_data_added = True
         st.sidebar.success(
             f"Indexe: {uploaded_file.name} ({len(chunks)} chunks)"
         )
 
+     # SAUVEGARDE AUTOMATIQUE APRÈS L'AJOUT
+    if new_data_added:
+        save_index_to_disk()
+        st.toast("Index mis à jour et sauvegardé sur disque !", icon="✅")
+
+
+# Affichage des sources
 if st.session_state.rag_sources:
-    st.sidebar.markdown("Documents indexes:")
-    for name in sorted(set(st.session_state.rag_sources)):
-        st.sidebar.write(f"- {name}")
-    st.sidebar.caption(f"{len(st.session_state.rag_docs)} chunks indexes")
+    st.sidebar.markdown(f"**{len(set(st.session_state.rag_sources))} documents** en mémoire.")
+    with st.sidebar.expander("Voir la liste"):
+        for name in sorted(set(st.session_state.rag_sources)):
+            st.write(f"- {name}")
 else:
-    st.sidebar.info("Aucun document indexe.")
+    st.sidebar.info("Aucun document.")
 
 # --- ZONE DE CHAT ---
 
@@ -443,7 +558,7 @@ if prompt := st.chat_input("Posez votre question..."):
         with st.spinner("Recherche dans les documents..."):
             try:
                 retrieved_chunks, used_sources = retrieve_chunks(
-                    prompt, top_k, min_score, client
+                    safe_prompt, top_k, min_score, client
                 )
             except Exception as exc:
                 st.warning(f"RAG indisponible: {exc}")
