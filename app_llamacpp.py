@@ -1,7 +1,7 @@
 import hashlib
 import io
 import math
-
+import pickle
 import streamlit as st
 from openai import OpenAI
 from gliner import GLiNER
@@ -9,6 +9,7 @@ from gliner import GLiNER
 BASE_URL = "http://localhost:8033/v1"
 LLM_MODEL = "mistral"
 EMBEDDING_MODEL = "text-embedding-3-small"
+INDEX_FILE = "eco_index.pkl"  # <--- Nom du fichier de base de données locale
 
 DEFAULT_CHUNK_SIZE = 1200
 DEFAULT_CHUNK_OVERLAP = 200
